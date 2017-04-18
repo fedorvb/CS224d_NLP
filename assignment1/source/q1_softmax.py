@@ -20,11 +20,24 @@ def softmax(x):
     written assignment!
     """
 
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    ### YOUR CODE HERE       
+    
+    if len(x.shape) == 1: # this is vector, not matrix
+        rows = 1
+        cols = x.shape[0]
+    else: 
+        rows = x.shape[0]
+        cols = x.shape[1]        
+    
+    x = x.reshape(rows, cols)
+    # fix for numerical stability
+    x = x - np.max(x, axis=1, keepdims=True)
+    expX = np.exp(x)
+    normalizer = np.sum(expX, axis=1, keepdims=True) # normalze probabilities per row
+    result = expX / normalizer
     ### END YOUR CODE
     
-    return x
+    return result  
 
 def test_softmax_basic():
     """
@@ -58,7 +71,15 @@ def test_softmax():
     """
     print "Running your tests..."
     ### YOUR CODE HERE
-    raise NotImplementedError
+    bigandSmallnumberTest = softmax(np.array([1e10, 1e-10]))
+    print bigandSmallnumberTest
+    assert np.amax(np.fabs(bigandSmallnumberTest - np.array(
+        [1, 0]))) <= 1e-6
+    
+    bigandSmallnumberTest = softmax(np.array([1e10, 1e10]))
+    print bigandSmallnumberTest
+    assert np.amax(np.fabs(bigandSmallnumberTest - np.array(
+        [0.5, 0.5]))) <= 1e-6
     ### END YOUR CODE  
 
 if __name__ == "__main__":

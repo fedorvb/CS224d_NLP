@@ -41,6 +41,9 @@ deactivate                       # Exit the virtual environment
 
 ```
 
+If there is issue with installing Virtual env, then try to look into:
+https://github.com/conda/conda/issues/1367
+
 </div>
 
 **Install requirements (without a virtual environment)**: To install the required packages locally without setting up a virtual environment, run the following:

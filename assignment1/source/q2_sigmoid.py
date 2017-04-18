@@ -6,10 +6,10 @@ def sigmoid(x):
     """
     
     ### YOUR CODE HERE
-    raise NotImplementedError
+    result = 1.0 / (1.0 + np.exp(-x))
     ### END YOUR CODE
     
-    return x
+    return result
 
 def sigmoid_grad(f):
     """
@@ -19,10 +19,10 @@ def sigmoid_grad(f):
     """
     
     ### YOUR CODE HERE
-    raise NotImplementedError
+    result = f * (1-f)
     ### END YOUR CODE
     
-    return f
+    return result
 
 def test_sigmoid_basic():
     """
@@ -50,7 +50,11 @@ def test_sigmoid():
     """
     print "Running your tests..."
     ### YOUR CODE HERE
-    raise NotImplementedError
+    # sigmoid gradient is zero on the outer left and right regions
+    g = sigmoid_grad(sigmoid(np.array([[1e10], [-1e10]])))
+    print g
+    assert np.amax(g - np.array([0, 0])) <= 1e-6
+    
     ### END YOUR CODE
 
 if __name__ == "__main__":

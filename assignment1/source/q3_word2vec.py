@@ -10,7 +10,7 @@ def normalizeRows(x):
     # Implement a function that normalizes each row of a matrix to have unit length
     
     ### YOUR CODE HERE
-    raise NotImplementedError
+    x = x / np.sqrt(np.sum(np.square(x), axis=1, keepdims=True))
     ### END YOUR CODE
     
     return x
@@ -50,7 +50,37 @@ def softmaxCostAndGradient(predicted, target, outputVectors, dataset):
     # assignment!                                                  
     
     ### YOUR CODE HERE
-    raise NotImplementedError
+    # Size V: vocabulary size
+    # Size N: Vector Length
+    # cost = -ylog(y^)  1xV
+    #
+    # ^y = p(o | c) = exp(uo.dot(vc)) / SUM_w=1_W{exp(uw.dot(vc)}  # softmax
+    # uw denotes the w-th word and uw (w = 1; W) are the output word vectors 
+    # for all words in the vocabulary.
+    # where "uo" is the output word vector, and "vc" is the context word vector   
+    # normalized by sum of all dot products of other word vectors with the context word vector
+    #
+    # y^ = softmax(vc*outputVector) 1xN * VxN = 1*V
+    # after having a 1xV vector, take the target out
+    # same as y^ multiple a one hot vector
+    V, D = outputVectors.shape
+    y = softmax(np.dot(predicted, outputVectors.T))
+    # cost: cross entropy cost for the softmax word prediction   
+    cost = -np.log(y[0, target])
+    
+    # grad CE and softmax will end up a form: y^ - label
+    # dimension 1xV    
+    y[0, target] = y[0, target] - 1
+    #print "y.shape", y.shape
+    #print "y", y
+    
+    # gradPred: the gradient with respect to the predicted word vector
+    # dimension y=(1,V), outputVectors=(V, D) => resulted dimension (1,D)
+    gradPred = np.dot(y, outputVectors) 
+    
+    # - grad: the gradient with respect to all the other word vectors     
+    # dimension y.T=(V,1), predicted=(1, D) => resulted dimension (V,D)
+    grad = np.dot(y.T, predicted.reshape(1, D))
     ### END YOUR CODE
     
     return cost, gradPred, grad
@@ -73,12 +103,36 @@ def negSamplingCostAndGradient(predicted, target, outputVectors, dataset,
     # assignment!
     
     ### YOUR CODE HERE
-    raise NotImplementedError
-    ### END YOUR CODE
+    # outputVectors=(V, D), predicted=(D)        
+    scores = sigmoid(np.dot(outputVectors, predicted))
+    sampled_tokens = [dataset.sampleTokenIdx() for i in range(K)]
     
+    # negative sampling cost
+    # cost = - log(sigmoid(predicted * output[target]))
+    #         - sum(log(sigmoid(predicted * - output[sample])))    
+    # dimension of cost is (V) 
+    
+    # scores[sampled_tokens] == sigmoid(predicted * - output[sample]) == 
+    # == 1 - sigmoid(predicted * output[sample])
+    # basic property of sigmoid(-X) = 1 - sigmoid(X)
+    cost = - np.log(scores[target]) - np.sum(np.log(1 - scores[sampled_tokens]))
+    # reminder: scores[sampled_tokens] = sigmoid(np.dot(-samples, predicted))
+
+    # gradPred: the gradient with respect to the predicted word vector
+    # derivative of "- np.log(scores[target])" = -1/(scores[target]) * 
+    # * (scores[target]) * (1-(scores[target])) * outputVectors[target]
+    gradPred = (scores[target] - 1) * outputVectors[target] \
+               + np.sum(outputVectors[sampled_tokens].T * scores[sampled_tokens], axis=1)
+
+    # - grad: the gradient with respect to all the other word vectors 
+    grad = np.zeros_like(outputVectors)
+    grad[target] = (scores[target]-1) * predicted
+    for token in sampled_tokens:
+        grad[token] += scores[token] * predicted
+
+    ### END YOUR CODE
     return cost, gradPred, grad
-
-
+   
 def skipgram(currentWord, C, contextWords, tokens, inputVectors, outputVectors, 
     dataset, word2vecCostAndGradient = softmaxCostAndGradient):
     """ Skip-gram model in word2vec """
@@ -106,7 +160,16 @@ def skipgram(currentWord, C, contextWords, tokens, inputVectors, outputVectors,
     # assignment!
 
     ### YOUR CODE HERE
-    raise NotImplementedError
+    cost = 0
+    currentVector = inputVectors[tokens[currentWord]]
+    gradIn = np.zeros(inputVectors.shape)
+    gradOut = np.zeros(outputVectors.shape)
+    for context in contextWords:
+        c, gPred, g = word2vecCostAndGradient(currentVector, tokens[context], outputVectors, dataset)
+        cost += c
+        gradIn[tokens[currentWord]] += gPred.flatten()
+        gradOut += g
+    
     ### END YOUR CODE
     
     return cost, gradIn, gradOut
@@ -130,11 +193,29 @@ def cbow(currentWord, C, contextWords, tokens, inputVectors, outputVectors,
     gradIn = np.zeros(inputVectors.shape)
     gradOut = np.zeros(outputVectors.shape)
 
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    ### YOUR CODE HERE   
+
+    # For (a simpler variant of) CBOW, we sum up the input word vectors in the context
+    # v^ = SUM_j=-m,m {vc_j} - this is a sum of the context vectors around the current word(2*m vectors)
+    total_cost = 0
+    total_grad_in = np.zeros_like(inputVectors)
+    total_grad_out = np.zeros_like(outputVectors)
+    input_vector = np.sum([inputVectors[tokens[context_word]]
+                           for context_word in contextWords], axis=0)  # v_c
+    target = tokens[currentWord] # y
+    # in simplified CBOW model we predict "sum of vectors the context words", 
+    # and we use the center word to predict context words around it    
+    cost, grad_predicted, grad_out = word2vecCostAndGradient(input_vector, target, outputVectors,
+                                                             dataset)
+    total_cost += cost
+    for context_word in contextWords:
+        #print "grad_predicted.shape", grad_predicted.shape
+        total_grad_in[tokens[context_word]] += grad_predicted.flatten()
+    total_grad_out += grad_out
+    
     ### END YOUR CODE
     
-    return cost, gradIn, gradOut
+    return total_cost, total_grad_in, total_grad_out
 
 #############################################
 # Testing functions below. DO NOT MODIFY!   #
