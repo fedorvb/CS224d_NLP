@@ -54,7 +54,15 @@ class SoftmaxModel(Model):
     (Don't change the variable names)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    self.input_placeholder = tf.placeholder(
+            dtype=tf.float32,
+            shape=(self.config.batch_size, self.config.n_features),
+            name="input")
+
+    self.labels_placeholder = tf.placeholder(
+            dtype=tf.int32,
+            shape=(self.config.batch_size, self.config.n_classes),
+            name="labels")
     ### END YOUR CODE
 
   def create_feed_dict(self, input_batch, label_batch):
@@ -79,7 +87,10 @@ class SoftmaxModel(Model):
       feed_dict: The feed dictionary mapping from placeholders to values.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    feed_dict = {
+            self.input_placeholder: input_batch,
+            self.labels_placeholder: label_batch,
+        }
     ### END YOUR CODE
     return feed_dict
 
@@ -103,7 +114,8 @@ class SoftmaxModel(Model):
       train_op: The Op for training.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    opt = tf.train.GradientDescentOptimizer(learning_rate=self.config.lr)
+    train_op = opt.minimize(self.loss)
     ### END YOUR CODE
     return train_op
 
@@ -127,7 +139,16 @@ class SoftmaxModel(Model):
       out: A tensor of shape (batch_size, n_classes)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    initial_W = tf.convert_to_tensor(
+            1e-4 * np.random.randn(self.config.n_features, self.config.n_classes), dtype=np.float32)
+    initial_b = tf.convert_to_tensor(
+            1e-4 * np.random.randn(self.config.n_classes), dtype=np.float32)
+
+    with tf.name_scope("softmax-layer"):
+            W = tf.Variable(initial_W, name='weights')
+            b = tf.Variable(initial_b, name='bias')
+            y = tf.matmul(self.input_placeholder, W) + b
+            out = softmax(y)
     ### END YOUR CODE
     return out
 
@@ -142,7 +163,7 @@ class SoftmaxModel(Model):
       loss: A 0-d tensor (scalar)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    loss = cross_entropy_loss(self.labels_placeholder, pred)
     ### END YOUR CODE
     return loss
 

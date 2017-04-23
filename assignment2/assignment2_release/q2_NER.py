@@ -92,7 +92,9 @@ class NERModel(LanguageModel):
     (Don't change the variable names)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    self.input_placeholder = tf.placeholder(tf.int32, shape=(None, self.config.window_size))
+    self.labels_placeholder = tf.placeholder(tf.int32, shape=(None, self.config.label_size))
+    self.dropout_placeholder = tf.placeholder(tf.float32, None)
     ### END YOUR CODE
 
   def create_feed_dict(self, input_batch, dropout, label_batch=None):
@@ -117,7 +119,13 @@ class NERModel(LanguageModel):
       feed_dict: The feed dictionary mapping from placeholders to values.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    feed_dict = {
+      self.input_placeholder: input_batch,
+      self.dropout_placeholder: dropout,
+    }
+    
+    if label_batch is not None:
+      feed_dict[self.labels_placeholder] = label_batch    
     ### END YOUR CODE
     return feed_dict
 
@@ -136,6 +144,7 @@ class NERModel(LanguageModel):
           embedding.
     Hint: You might find tf.nn.embedding_lookup useful.
     Hint: See following link to understand what -1 in a shape means.
+      https://www.tensorflow.org/api_docs/python/tf/reshape
       https://www.tensorflow.org/versions/r0.8/api_docs/python/array_ops.html#reshape
     Hint: Check the last slide from the TensorFlow lecture.
     Hint: Here are the dimensions of the variables you will need to create:
@@ -148,7 +157,12 @@ class NERModel(LanguageModel):
     # The embedding lookup is currently only implemented for the CPU
     with tf.device('/cpu:0'):
       ### YOUR CODE HERE
-      raise NotImplementedError
+      #Looks up ids in a list of embedding tensors.
+      # embedding_lookup function is used to perform parallel lookups on the list of tensors in params
+      # self.wv is the word vectors, where we are looking to find vectors of specified indexes in self.input_placeholder
+      window = tf.nn.embedding_lookup(tf.convert_to_tensor(self.wv, dtype=tf.float32), self.input_placeholder)  
+      # -1 in the shape is used to infer the first dimension, while second dimension is known
+      window = tf.reshape(window, shape=[-1, self.config.window_size * self.config.embed_size], name="window")
       ### END YOUR CODE
       return window
 
@@ -179,8 +193,29 @@ class NERModel(LanguageModel):
     Returns:
       output: tf.Tensor of shape (batch_size, label_size)
     """
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    ### YOUR CODE HERE 
+    
+    with tf.variable_scope("Layer") as layer_scope:
+        W = tf.get_variable(shape=(self.config.window_size*self.config.embed_size, self.config.hidden_size),
+                        initializer=xavier_weight_init(), name="Weight")
+        b1 = tf.get_variable(shape=(self.config.hidden_size),
+                        initializer=tf.constant_initializer(0.0), name = "Bias")
+
+    with tf.variable_scope("Softmax") as hidden_layer:
+        U = tf.get_variable(shape=(self.config.hidden_size, self.config.label_size),
+                        initializer=xavier_weight_init(), name="Weight")
+        b2 = tf.get_variable(shape=(self.config.label_size),
+                        initializer=tf.constant_initializer(0.0), name = "Bias")
+
+    # forward propagation    
+    Z1 = tf.matmul(tf.to_float(window),W)+b1 # dimension (BatchSize*hidden_size)
+    h = tf.tanh(Z1) # dimension (BatchSize*hidden_size)
+    h = tf.nn.dropout(h, self.dropout_placeholder) # dimension (BatchSize*hidden_size)
+    
+    yhat = tf.matmul(h, U)+b2 # dimension (BatchSize*label_size)
+    l2_loss = tf.nn.l2_loss(W) + tf.nn.l2_loss(U)      ###################
+    tf.add_to_collection(name="l2_loss", value=l2_loss)
+    output = yhat
     ### END YOUR CODE
     return output 
 
@@ -195,7 +230,14 @@ class NERModel(LanguageModel):
       loss: A 0-d tensor (scalar)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=y, labels=self.labels_placeholder))
+    
+    # Regularization
+    loss += self.config.l2*tf.get_collection("l2_loss")[0]
+    
+    tf.add_to_collection('total_loss', loss)
+    loss = tf.add_n(tf.get_collection('total_loss'))
+
     ### END YOUR CODE
     return loss
 
@@ -219,7 +261,7 @@ class NERModel(LanguageModel):
       train_op: The Op for training.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    train_op = tf.train.AdamOptimizer(self.config.lr).minimize(loss=loss)
     ### END YOUR CODE
     return train_op
 
@@ -235,7 +277,7 @@ class NERModel(LanguageModel):
     self.predictions = tf.nn.softmax(y)
     one_hot_prediction = tf.argmax(self.predictions, 1)
     correct_prediction = tf.equal(
-        tf.argmax(self.labels_placeholder, 1), one_hot_prediction)
+        tf.argmax(self.labels_placeholder, axis=1), one_hot_prediction)
     self.correct_predictions = tf.reduce_sum(tf.cast(correct_prediction, 'int32'))
     self.train_op = self.add_training_op(self.loss)
 
