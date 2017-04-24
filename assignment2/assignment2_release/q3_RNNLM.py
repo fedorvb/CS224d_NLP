@@ -9,7 +9,7 @@ from utils import calculate_perplexity, get_ptb_dataset, Vocab
 from utils import ptb_iterator, sample
 
 import tensorflow as tf
-from tensorflow.python.ops.seq2seq import sequence_loss
+#from tensorflow.python.ops.seq2seq import sequence_loss
 from model import LanguageModel
 
 # Let's set the parameters of our model
@@ -27,7 +27,7 @@ class Config(object):
   embed_size = 50
   hidden_size = 100
   num_steps = 10
-  max_epochs = 16
+  max_epochs = 3
   early_stopping = 2
   dropout = 0.9
   lr = 0.001
@@ -79,7 +79,9 @@ class RNNLM_Model(LanguageModel):
     (Don't change the variable names)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    self.input_placeholder = tf.placeholder(dtype=tf.int32, shape=(None,self.config.num_steps))
+    self.labels_placeholder = tf.placeholder(dtype=tf.float32, shape=(None,self.config.num_steps))
+    self.dropout_placeholder = tf.placeholder(dtype=tf.float32,shape=())
     ### END YOUR CODE
   
   def add_embedding(self):
@@ -98,12 +100,24 @@ class RNNLM_Model(LanguageModel):
       inputs: List of length num_steps, each of whose elements should be
               a tensor of shape (batch_size, embed_size).
     """
+    
     # The embedding lookup is currently only implemented for the CPU
     with tf.device('/cpu:0'):
-      ### YOUR CODE HERE
-      raise NotImplementedError
+      ### YOUR CODE HERE           
+      all_embeddings = tf.get_variable(name="lookup_table",shape=[len(self.vocab),self.config.embed_size])       
+    
+      input_embeddings = tf.nn.embedding_lookup(params=all_embeddings,ids=self.input_placeholder)
+        
+      # tf.split: Splits a tensor into sub tensors.
+      # If num_or_size_splits is a scalar, num_split, then splits value along dimension axis into
+      # num_split smaller tensors.         
+      embeddings_list = tf.split(value=input_embeddings,num_or_size_splits=self.config.num_steps,axis=1)
+       
+      # tf.squeeze - Removes dimensions of size 1 from the shape of a tensor.
+      # resulted inputs will have dimensions (batch_size, embed_size)
+      inputs = [tf.squeeze(item, squeeze_dims=(1,)) for item in embeddings_list]
       ### END YOUR CODE
-      return inputs
+      return inputs 
 
   def add_projection(self, rnn_outputs):
     """Adds a projection layer.
@@ -125,7 +139,14 @@ class RNNLM_Model(LanguageModel):
                (batch_size, len(vocab)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    with tf.variable_scope("projection"):
+        U = tf.get_variable(name="U",shape=[self.config.hidden_size, len(self.vocab)])
+        b2 = tf.get_variable(name="b2",shape=[len(self.vocab)],initializer=tf.constant_initializer(0.0))
+    outputs = []
+    for rnn_step in rnn_outputs:
+        temp = tf.matmul(rnn_step, U) + b2
+        outputs.append(temp)    
+
     ### END YOUR CODE
     return outputs
 
@@ -140,7 +161,21 @@ class RNNLM_Model(LanguageModel):
       loss: A 0-d tensor (scalar)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    
+    # weights       A 2D Tensor of shape [batch_size x sequence_length] and dtype float. 
+    # Weights constitutes the weighting of each prediction in the sequence. 
+    # When using weights as masking set all valid timesteps to 1 and all padded timesteps to 0.    
+    all_ones_weight = tf.ones(shape=[self.config.batch_size,self.config.num_steps])
+    
+    # tf.reshape(self.labels_placeholder,[self.config.batch_size * self.config.num_steps, -1])        
+    reshape_labels = tf.cast(self.labels_placeholder,tf.int32)    
+    output_tensor = tf.convert_to_tensor(output)
+    
+    # Weighted cross-entropy loss for a sequence of logits (per example).
+    # https://www.tensorflow.org/api_docs/python/tf/contrib/seq2seq/sequence_loss
+    loss = tf.contrib.seq2seq.sequence_loss(logits=output_tensor,
+                         targets=reshape_labels,                                            
+                         weights=all_ones_weight)
     ### END YOUR CODE
     return loss
 
@@ -164,26 +199,39 @@ class RNNLM_Model(LanguageModel):
       train_op: The Op for training.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    with tf.variable_scope('adam'):
+      train_op = tf.train.AdamOptimizer(self.config.lr).minimize(loss)
     ### END YOUR CODE
     return train_op
   
   def __init__(self, config):
     self.config = config
+    
+    # load train/validation/test data from disk into memory
     self.load_data(debug=False)
+    
+    # defines data structures
     self.add_placeholders()
+    
+    # layer to retrieve word embeddings          
     self.inputs = self.add_embedding()
+    
+    # constructs RNN Language model
     self.rnn_outputs = self.add_model(self.inputs)
+    
+    # The projection layer transforms the hidden representation
+    # to a distribution over the vocabulary
     self.outputs = self.add_projection(self.rnn_outputs)
   
     # We want to check how well we correctly predict the next word
     # We cast o to float64 as there are numerical issues at hand
     # (i.e. sum(output of softmax) = 1.00000298179 and not 1)
-    self.predictions = [tf.nn.softmax(tf.cast(o, 'float64')) for o in self.outputs]
-    # Reshape the output into len(vocab) sized chunks - the -1 says as many as
-    # needed to evenly divide
-    output = tf.reshape(tf.concat(1, self.outputs), [-1, len(self.vocab)])
-    self.calculate_loss = self.add_loss_op(output)
+    self.predictions = [tf.nn.softmax(tf.cast(o, 'float64')) for o in self.outputs]    
+    
+    # Adds loss ops to the computational graph
+    self.calculate_loss = self.add_loss_op(self.outputs)
+    
+    # Sets up the training loss to the computation graph configuration
     self.train_step = self.add_training_op(self.calculate_loss)
 
 
@@ -226,7 +274,23 @@ class RNNLM_Model(LanguageModel):
                a tensor of shape (batch_size, hidden_size)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    # hidden state weight matrix that converts hidden state
+    self.H = tf.get_variable("H", shape=[self.config.hidden_size, self.config.hidden_size])
+    
+    self.I = tf.get_variable("I", shape=[self.config.embed_size, self.config.hidden_size])
+    self.b_1 = tf.get_variable("b_1", shape=[self.config.hidden_size])
+    
+    # initial hidden state is zero
+    self.initial_state = tf.zeros((self.config.batch_size, self.config.hidden_size))
+    state = self.initial_state
+    rnn_outputs = []
+    
+    # inference over num_steps of the sequence
+    for time_step in xrange(self.config.num_steps):
+      state = tf.nn.sigmoid(tf.matmul(state, self.H) + tf.matmul(inputs[time_step], self.I) + self.b_1)
+      rnn_outputs.append(state)
+    self.final_state = state
+    
     ### END YOUR CODE
     return rnn_outputs
 
@@ -284,10 +348,20 @@ def generate_text(session, model, config, starting_text='<eos>',
   tokens = [model.vocab.encode(word) for word in starting_text.split()]
   for i in xrange(stop_length):
     ### YOUR CODE HERE
-    raise NotImplementedError
+    # initializing a dictionary
+    feed_dict = {
+        model.initial_state : state,
+        # last row of tokens - this is one hot encoded vector for last word
+        # may try all words ?? 
+        model.input_placeholder : [tokens[-1:]],
+        model.dropout_placeholder : 1, # we do not drop anything
+    }
+    state, y_pred = session.run([model.final_state,model.predictions[-1]],
+                               feed_dict = feed_dict)
     ### END YOUR CODE
     next_word_idx = sample(y_pred[0], temperature=temp)
     tokens.append(next_word_idx)
+    # <eos>
     if stop_tokens and model.vocab.decode(tokens[-1]) in stop_tokens:
       break
   output = [model.vocab.decode(word_idx) for word_idx in tokens]
